@@ -4,6 +4,7 @@
 #include <curl/curl.h>
 
 char solution_[6];
+int is_valid = 0;
 
 char *to_upper(char *s) {
     char *res = malloc(6);
@@ -64,21 +65,63 @@ int evaluate_guess(char *guess, char *sol) {
     return 0;
 }
 
-size_t write_callback(void *ptr, size_t size, size_t nmemb, void *userdata) {
+size_t set_random_word(void *ptr, size_t size, size_t nmemb, void *userdata) {
     char data[10];
     sprintf(data, "%.*s", (int)(size * nmemb), (char *)ptr);
     sscanf(data, "[\"%5s\"]", solution_);
     return size * nmemb;
 }
 
-int get_req(void) {
+int get_random_word(void) {
     CURL *curl;
     CURLcode res;
 
     curl = curl_easy_init();
     if (curl) {
         curl_easy_setopt(curl, CURLOPT_URL, "https://random-word-api.herokuapp.com/word?length=5");
-        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_callback);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, set_random_word);
+        
+        // Perform the request, res will get the return code
+        res = curl_easy_perform(curl);
+
+        // Check for errors
+        if(res != CURLE_OK) {
+            fprintf(stderr, "curl_easy_perform() failed: %s\n", curl_easy_strerror(res));
+        }
+
+        // Clean up
+        curl_easy_cleanup(curl);
+    }
+    return 0;
+}
+
+size_t validate_word(void *ptr, size_t size, size_t nmemb, void *userdata) {
+    char data[4096];
+    snprintf(data, 4096, "%.*s", (int)(size * nmemb), (char *)ptr);
+    // printf("data:\n%s\n", data);
+    is_valid = 0;
+    if (strncmp(data, "[{\"word\":", strlen("[{\"word\":")) == 0) {
+        printf("valid\n");
+        is_valid = 1;
+    } else {
+        printf("invalid\n");
+    }
+    // printf("\n%c\n", data[3]);
+    return size * nmemb;
+}
+
+int is_guess_word(char *guess) {
+    CURL *curl;
+    CURLcode res;
+
+    curl = curl_easy_init();
+    if (curl) {
+        // https://api.dictionaryapi.dev/api/v2/entries/en/aaaaa
+        char url[sizeof("https://api.dictionaryapi.dev/api/v2/entries/en/aaaaa")];
+        sprintf(url, "https://api.dictionaryapi.dev/api/v2/entries/en/%s", guess);
+        printf("%s\n", url);
+        curl_easy_setopt(curl, CURLOPT_URL, url);
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, validate_word);
         
         // Perform the request, res will get the return code
         res = curl_easy_perform(curl);
@@ -95,7 +138,7 @@ int get_req(void) {
 }
 
 int main(void) {
-    get_req();
+    get_random_word();
     char *wordle = solution_;
     char *solution = to_upper(wordle);
     char guess[7];
@@ -111,6 +154,12 @@ int main(void) {
         }
         guess[5] = 0;
         char *guess_upper = to_upper(guess);
+        is_guess_word(guess_upper);
+        if (!is_valid) {
+            printf("not in word list\n");
+            i--;
+            continue;
+        }
         if (evaluate_guess(guess_upper, solution) != 0) {
             printf("uh oh...\n");
             return 1;
